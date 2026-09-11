@@ -4,7 +4,7 @@ yxbj_decrypt.py
 
 解密印象笔记 / Evernote 导出的 ".notes" 文件——其中 <content> 内容块被编码为
 encoding="base64:aes"（即 "ENC0" 格式）——并将解密后的笔记正文输出为独立的
-HTML 文件。
+Markdown（默认）或 HTML 文件。
 
 背景说明
 ----------
@@ -21,22 +21,25 @@ HMAC-SHA256 密钥派生循环，推导出 AES 密钥和 HMAC 密钥。由于这
 
 本实现是独立编写并与
 https://github.com/HNIdesu/YinxiangbijiConverter （Program.cs）中的 C# 参考
-实现相互印证的，二者独立逆向出了同一个常量和算法。
+实现相互印证的，二者独立逆向出了同一个常量和算法。（注意：该参考实现在
+去除 PKCS7 填充后还会额外裁掉一个字节；经实测这会误删部分笔记正文最后一个
+真实字符，本实现不做这一步多余的裁剪。）
 
 适用范围 / 限制
 --------------------
 - 只处理笔记的 <content> 字段（笔记正文/文本）。内嵌的资源文件（图片、附件）
-  不会被处理——因为这种格式本身并未对它们加密。
+  本身未被加密，这里也不做提取，只在正文中用占位说明标记出现过的位置。
 - 目前只在 Evernote Mac / 印象笔记 Mac 9.8.x 所使用的 "ENC0" 方案上测试过。
   如果未来的客户端版本更换了内置常量，HMAC 校验步骤会直接对每条笔记报错
   （下方会看到 "HMAC mismatch" 错误），而不会静默产出乱码内容。
 
 用法
 -----
-    python3 yxbj_decrypt.py path/to/export.notes [-o output_dir]
+    python3 yxbj_decrypt.py path/to/export.notes [-o output_dir] [--format md|html]
 
-会将每条笔记写为一个 .html 文件，输出到 "<output_dir>/decrypted_notes"
-（默认：在输入文件同目录下创建 "decrypted_notes" 文件夹）。
+默认将每条笔记转换为一个 .md 文件，输出到 "<output_dir>/decrypted_notes"
+（默认：在输入文件同目录下创建 "decrypted_notes" 文件夹）。传入
+--format html 可改为输出原始 ENML/HTML 内容。
 """
 import argparse
 import base64
@@ -120,8 +123,43 @@ def decrypt_content(raw: bytes) -> str:
 
     cipher = AES.new(aes_key, AES.MODE_CBC, iv)
     plaintext = unpad_pkcs7(cipher.decrypt(ciphertext))
-    plaintext = plaintext[:-1]  # 客户端在去除填充后还会多附加一个字节，需一并去掉
     return plaintext.decode("utf-8", errors="replace")
+
+
+EN_NOTE_RE = re.compile(r"<en-note[^>]*>(.*)</en-note>", re.S)
+EN_TODO_RE = re.compile(r'<en-todo(?:\s+checked="(true|false)")?\s*/>')
+EN_MEDIA_RE = re.compile(
+    r'<en-media\b(?=[^>]*\btype="([^"]*)")(?=[^>]*\bhash="([^"]*)")[^>]*>'
+    r'(?:\s*</en-media>)?'
+)
+
+
+def _todo_replacement(m: "re.Match[str]") -> str:
+    return "- [x] " if m.group(1) == "true" else "- [ ] "
+
+
+def _media_replacement(m: "re.Match[str]") -> str:
+    return f"\n> [附件未提取：type={m.group(1)}, hash={m.group(2)}]\n"
+
+
+def enml_to_markdown(enml: str) -> str:
+    """将解密后的 ENML（本质是一种 XHTML 方言）正文转换为 Markdown 文本。
+
+    - <en-todo> 转换为 GFM 复选框语法 "- [x] " / "- [ ] "
+    - <en-media>（图片/附件引用）转换为占位说明，附件本身并未提取
+    - 其余标签交给 markdownify 按普通 HTML 处理
+    """
+    from markdownify import markdownify
+
+    text = EN_TODO_RE.sub(_todo_replacement, enml)
+    text = EN_MEDIA_RE.sub(_media_replacement, text)
+
+    body_match = EN_NOTE_RE.search(text)
+    body = body_match.group(1) if body_match else text
+
+    md_text = markdownify(body, heading_style="ATX")
+    md_text = re.sub(r"\n{3,}", "\n\n", md_text).strip() + "\n"
+    return md_text
 
 
 def sanitize_filename(name: str) -> str:
@@ -140,7 +178,25 @@ def main():
         default=None,
         help="输出目录（默认：在输入文件同目录下创建 'decrypted_notes' 文件夹）",
     )
+    parser.add_argument(
+        "--format",
+        choices=["md", "html"],
+        default="md",
+        help="输出格式：md（默认，转换为 Markdown）或 html（保留原始 ENML/HTML 内容）",
+    )
     args = parser.parse_args()
+
+    if args.format == "md":
+        try:
+            import markdownify  # noqa: F401
+        except ImportError:
+            print(
+                "缺少依赖库 'markdownify'（--format md 需要）。\n"
+                "请先安装：pip install -r requirements.txt\n"
+                "或改用 --format html 跳过 Markdown 转换。",
+                file=sys.stderr,
+            )
+            sys.exit(1)
 
     with open(args.input, "r", encoding="utf-8") as f:
         data = f.read()
@@ -152,11 +208,12 @@ def main():
 
     notes = NOTE_RE.findall(data)
     print(f"在 {args.input} 中找到 {len(notes)} 条笔记")
-    print(f"解密结果将写入 {out_dir}\n")
+    print(f"解密结果（{args.format} 格式）将写入 {out_dir}\n")
 
     ok = 0
     failed = []
     skipped = 0
+    ext = args.format
     for i, note_block in enumerate(notes, 1):
         title_match = TITLE_RE.search(note_block)
         title = html.unescape(title_match.group(1)) if title_match else f"note_{i}"
@@ -170,12 +227,14 @@ def main():
         raw = base64.b64decode(content_match.group(1))
         try:
             plaintext = decrypt_content(raw)
+            if args.format == "md":
+                plaintext = enml_to_markdown(plaintext)
         except Exception as e:
             failed.append((title, str(e)))
             print(f"[{i}] '{title}'：解密失败（{e}）")
             continue
 
-        fname = f"{i:03d}_{sanitize_filename(title)}.html"
+        fname = f"{i:03d}_{sanitize_filename(title)}.{ext}"
         with open(os.path.join(out_dir, fname), "w", encoding="utf-8") as out:
             out.write(plaintext)
         ok += 1

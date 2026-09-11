@@ -1,7 +1,7 @@
 # YXBJ Notes Convertor
 
 解析印象笔记导出的 `.notes` 文件并把每条笔记的内容导出为
-纯 `.html` 文件，用任意浏览器即可打开阅读。
+纯 `.md`（Markdown，默认）或 `.html` 文件。
 
 ## 为什么会有这个工具
 
@@ -21,6 +21,7 @@
 
 - Python 3.8+
 - [pycryptodome](https://pypi.org/project/pycryptodome/)
+- [markdownify](https://pypi.org/project/markdownify/)（仅 `--format md` 默认输出需要）
 
 ## 安装
 
@@ -44,12 +45,19 @@ python3 yxbj_decrypt.py "/path/to/My Notes.notes"
 ```
 
 这会在输入文件同目录下创建一个 `decrypted_notes/` 文件夹，并将每条笔记
-写成一个 `.html` 文件（命名格式为 `NNN_标题.html`）。
+转换并写成一个 `.md` 文件（命名格式为 `NNN_标题.md`）。
 
 自定义输出目录：
 
 ```bash
 python3 yxbj_decrypt.py "/path/to/My Notes.notes" -o /path/to/output_dir
+```
+
+如果想保留原始 ENML/HTML 内容而不转换为 Markdown，可以加上
+`--format html`：
+
+```bash
+python3 yxbj_decrypt.py "/path/to/My Notes.notes" --format html
 ```
 
 ### 如何获取 `.notes` 导出文件
@@ -61,21 +69,29 @@ python3 yxbj_decrypt.py "/path/to/My Notes.notes" -o /path/to/output_dir
 
 ```
 在 /path/to/My Notes.notes 中找到 62 条笔记
-解密结果将写入 /path/to/decrypted_notes
+解密结果（md 格式）将写入 /path/to/decrypted_notes
 
-[1] '我的第一条笔记'：解密成功 -> 001_我的第一条笔记.html
-[2] '购物清单'：解密成功 -> 002_购物清单.html
+[1] '我的第一条笔记'：解密成功 -> 001_我的第一条笔记.md
+[2] '购物清单'：解密成功 -> 002_购物清单.md
 ...
 完成。成功 62 条，失败 0 条，跳过 0 条（未加密）。
 ```
 
-每个输出文件都包含该笔记原始的 ENML/HTML 正文（一个 `<en-note>`
-文档）——可以直接用浏览器打开阅读，也可以自行转换成 Markdown 或纯文本。
+`--format md`（默认）会把 ENML 转换为常见的 Markdown 语法（标题、列表、
+链接、粗斜体等），并将印象笔记特有的标签转换为对应的近似表示：
+
+- `<en-todo>` 待办复选框 → GFM 复选框语法 `- [x]` / `- [ ]`
+- `<en-media>`（图片/附件引用）→ 一段占位说明，标注附件的类型和哈希值
+  （附件本身并未被提取，见下方"适用范围与限制"）
+
+`--format html` 则直接输出该笔记原始的 ENML/HTML 正文（一个 `<en-note>`
+文档）——可以直接用浏览器打开阅读，也可以自行用其他工具转换。
 
 ## 适用范围与限制
 
 - 只解密笔记的**正文内容**（标题在导出文件中本来就是明文）。内嵌的资源
-  文件/附件不会被处理，因为这种格式本身就没有对它们加密。
+  文件/附件不会被提取，因为这种格式本身就没有对它们加密——`--format md`
+  只会在原本引用附件的位置留下一段占位说明。
 - 目前只在 Evernote Mac / 印象笔记 Mac 客户端 9.8.x 版本上验证通过。如果
   未来的客户端版本更换了内置常量，每条笔记都会直接报 `HMAC mismatch`
   错误，而不会静默产出乱码内容——这是一种安全的失败方式，不会造成数据
@@ -92,7 +108,7 @@ python3 yxbj_decrypt.py "/path/to/My Notes.notes" -o /path/to/output_dir
 salt1  (16 字节) —— 用于派生 AES 密钥
 salt2  (16 字节) —— 用于派生 HMAC 校验密钥
 iv     (16 字节)
-密文    (长度不定，AES-128-CBC，PKCS7 填充 + 额外 1 字节)
+密文    (长度不定，AES-128-CBC，PKCS7 填充)
 hmac   (32 字节，对前面所有内容做 HMAC-SHA256)
 ```
 
