@@ -1,12 +1,11 @@
 # YXBJ Notes Convertor
 
-解密印象笔记 / Evernote 导出的 `.notes` 文件——其中笔记内容被加密
-（`encoding="base64:aes"`，即 `ENC0` 格式）——并把每条笔记的内容导出为
+解析印象笔记导出的 `.notes` 文件并把每条笔记的内容导出为
 纯 `.html` 文件，用任意浏览器即可打开阅读。
 
 ## 为什么会有这个工具
 
-印象笔记 / Evernote 的 Mac 客户端可以生成一种本地 `.notes` 备份/导出
+印象笔记的 Mac 客户端可以生成一种本地 `.notes` 备份/导出
 文件，格式上看起来和普通的 `.enex` 导出文件类似，只是每个 `<content>`
 元素都被加密了。生成这种导出文件时**不会弹出任何密码输入框**——更重要
 的是，解密它也**不需要任何用户密码**：客户端是从一个硬编码在客户端
@@ -106,6 +105,15 @@ hmac   (32 字节，对前面所有内容做 HMAC-SHA256)
 
 由 `salt1` 派生出的密钥用于解密密文（AES-128-CBC）；由 `salt2` 派生出
 的密钥则用于在解密之前先校验末尾的 HMAC，确保数据完整可信。
+
+## 参考资料
+
+- [`docs/yinxiang-encryption-article.md`](docs/yinxiang-encryption-article.md)：
+  官方文档《[印象笔记使用什么类型的加密？](https://www.yinxiang.com/hc/articles/%E5%8D%B0%E8%B1%A1%E7%AC%94%E8%AE%B0%E4%BD%BF%E7%94%A8%E4%BB%80%E4%B9%88%E7%B1%BB%E5%9E%8B%E7%9A%84%E5%8A%A0%E5%AF%86%EF%BC%9F/)》
+  的正文存档与原始网页快照（`yinxiang-encryption-article.html`），供离线
+  查阅与留档。注意：该文档描述的是笔记内"选中文本加密"功能（基于用户
+  口令），与本工具处理的 `.notes` 整体导出加密（基于硬编码常量）是两套
+  不同的机制，详见该存档文件末尾的编者按。
 
 ## 许可证
 
