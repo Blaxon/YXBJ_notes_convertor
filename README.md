@@ -83,6 +83,29 @@ python3 yxbj_decrypt.py "/path/to/My Notes.notes" -o /path/to/output_dir
 - 本工具只读取你本地的导出文件，不会连接任何 Evernote / 印象笔记的
   服务器或账号。
 
+## 原理说明（技术细节）
+
+每个加密的 `<content>` 内容块，base64 解码后的数据结构如下：
+
+```
+"ENC0" (4 字节魔数)
+salt1  (16 字节) —— 用于派生 AES 密钥
+salt2  (16 字节) —— 用于派生 HMAC 校验密钥
+iv     (16 字节)
+密文    (长度不定，AES-128-CBC，PKCS7 填充 + 额外 1 字节)
+hmac   (32 字节，对前面所有内容做 HMAC-SHA256)
+```
+
+`salt1` 和 `salt2` 都会经过同一套密钥派生流程：以一个固定的 40 字节
+常量（`{22C58AC3-F1C7-4D96-8B88-5E4BBF505817}`）作为 HMAC-SHA256 的密钥，
+迭代 5 万轮——每一轮都对当前的 nonce（由盐值播种）重新做一次哈希，并把
+这一轮摘要的前 16 字节异或累加进输出密钥。这是一套非标准的自定义构造，
+不是常见的 PBKDF2，但它是确定性的，除了文件中本就存在的盐值外，不需要
+任何额外的秘密输入。
+
+由 `salt1` 派生出的密钥用于解密密文（AES-128-CBC）；由 `salt2` 派生出
+的密钥则用于在解密之前先校验末尾的 HMAC，确保数据完整可信。
+
 ## 参考资料
 
 - [`docs/yinxiang-encryption-article.md`](docs/yinxiang-encryption-article.md)：
