@@ -2,46 +2,41 @@
 """
 yxbj_decrypt.py
 
-Decrypt a Yinxiang Biji / Evernote ".notes" export whose <content> blocks
-are encoded as encoding="base64:aes" (the "ENC0" format), and write out the
-decrypted note bodies as standalone HTML files.
+解密印象笔记 / Evernote 导出的 ".notes" 文件——其中 <content> 内容块被编码为
+encoding="base64:aes"（即 "ENC0" 格式）——并将解密后的笔记正文输出为独立的
+HTML 文件。
 
-Background
+背景说明
 ----------
-Yinxiang Biji (印象笔记, the Evernote client for the Chinese market) and
-Evernote's Mac client can produce a local ".notes" backup/export file that
-looks like a normal ENEX export, except every <content> element is
-encrypted (encoding="base64:aes", with an "ENC0" magic header).
+印象笔记（面向中国市场的 Evernote 客户端）以及 Evernote 的 Mac 客户端，
+都可以生成一种本地 ".notes" 备份/导出文件，格式上看起来和普通的 ENEX 导出
+文件类似，只是每个 <content> 元素都被加密了（encoding="base64:aes"，并带有
+"ENC0" 魔数头）。
 
-This is NOT protected by a user-chosen password. The app derives its AES
-and HMAC keys from a hardcoded constant baked into the client binary, run
-through a custom 50,000-round HMAC-SHA256 key-derivation loop together with
-a random salt stored in the file. Since the "secret" is a fixed constant
-embedded in the app itself rather than anything only the user knows, any
-".notes" file produced by this app can be decrypted without knowing any
-password.
+这**并不是**由用户自己设置的密码保护的。客户端会从一个硬编码在客户端二进制
+文件里的固定常量出发，结合文件中存储的随机盐值，经过自定义的 5 万轮
+HMAC-SHA256 密钥派生循环，推导出 AES 密钥和 HMAC 密钥。由于这个"秘密"其实
+是写死在软件里的常量，而不是只有用户本人知道的东西，所以任何由该客户端生成
+的 ".notes" 文件都可以在不知道任何密码的情况下被解密。
 
-This implementation was derived independently and cross-checked against
-the C# reference implementation in
-https://github.com/HNIdesu/YinxiangbijiConverter (Program.cs), which
-reverse-engineered the same constant and algorithm.
+本实现是独立编写并与
+https://github.com/HNIdesu/YinxiangbijiConverter （Program.cs）中的 C# 参考
+实现相互印证的，二者独立逆向出了同一个常量和算法。
 
-Scope / limitations
+适用范围 / 限制
 --------------------
-- Only handles the note <content> field (the note body/text). Embedded
-  resources (images, attachments) are left untouched -- they are not
-  encrypted in this format to begin with.
-- Only tested against the "ENC0" scheme used by Evernote Mac / Yinxiang
-  Biji Mac 9.8.x. If a future app version changes the embedded constant,
-  the HMAC verification step will simply fail for every note (you'll see
-  "HMAC mismatch" errors below) rather than silently producing garbage.
+- 只处理笔记的 <content> 字段（笔记正文/文本）。内嵌的资源文件（图片、附件）
+  不会被处理——因为这种格式本身并未对它们加密。
+- 目前只在 Evernote Mac / 印象笔记 Mac 9.8.x 所使用的 "ENC0" 方案上测试过。
+  如果未来的客户端版本更换了内置常量，HMAC 校验步骤会直接对每条笔记报错
+  （下方会看到 "HMAC mismatch" 错误），而不会静默产出乱码内容。
 
-Usage
+用法
 -----
     python3 yxbj_decrypt.py path/to/export.notes [-o output_dir]
 
-Writes one .html file per note into "<output_dir>/decrypted_notes"
-(default: a "decrypted_notes" folder next to the input file).
+会将每条笔记写为一个 .html 文件，输出到 "<output_dir>/decrypted_notes"
+（默认：在输入文件同目录下创建 "decrypted_notes" 文件夹）。
 """
 import argparse
 import base64
@@ -56,16 +51,16 @@ try:
     from Crypto.Cipher import AES
 except ImportError:
     print(
-        "Missing dependency 'pycryptodome'.\n"
-        "Install it first, e.g.:\n"
+        "缺少依赖库 'pycryptodome'。\n"
+        "请先安装，例如：\n"
         "    python3 -m venv venv && source venv/bin/activate\n"
         "    pip install -r requirements.txt\n",
         file=sys.stderr,
     )
     sys.exit(1)
 
-# Hardcoded constant embedded in the Evernote / Yinxiang Biji client binary.
-# This is not a user secret -- see module docstring.
+# 硬编码在 Evernote / 印象笔记客户端二进制文件中的固定常量。
+# 这不是用户的私密信息——详见文件顶部的说明。
 HMAC_KEY = b"{22C58AC3-F1C7-4D96-8B88-5E4BBF505817}"
 KDF_ROUNDS = 50000
 
@@ -77,11 +72,11 @@ CONTENT_RE = re.compile(
 
 
 def generate_key(salt16: bytes) -> bytes:
-    """Reproduces the client's custom HMAC-chain key derivation.
+    """还原客户端自定义的 HMAC 链式密钥派生算法。
 
-    Not PBKDF2: each round re-hashes the running nonce with HMAC-SHA256
-    under the fixed HMAC_KEY, then XORs the first 16 bytes of that round's
-    digest into the output key. Iterated 50,000 times.
+    注意：这不是标准的 PBKDF2。每一轮都用固定的 HMAC_KEY 对当前的 nonce
+    做一次 HMAC-SHA256 重新哈希，然后把这一轮摘要的前 16 字节异或累加进
+    输出密钥，如此迭代 5 万次。
     """
     nonce = bytearray(20)
     nonce[0:16] = salt16
@@ -98,17 +93,17 @@ def generate_key(salt16: bytes) -> bytes:
 def unpad_pkcs7(data: bytes) -> bytes:
     pad_len = data[-1]
     if pad_len < 1 or pad_len > 16 or pad_len > len(data):
-        raise ValueError("bad PKCS7 padding")
+        raise ValueError("PKCS7 填充数据不合法")
     return data[:-pad_len]
 
 
 def decrypt_content(raw: bytes) -> str:
-    """Decrypt one <content encoding="base64:aes"> payload (already base64-decoded).
+    """解密一个 <content encoding="base64:aes"> 内容块（传入前需先做 base64 解码）。
 
-    Wire format: b"ENC0" + salt1(16) + salt2(16) + iv(16) + ciphertext + hmac(32)
+    数据格式：b"ENC0" + salt1(16字节) + salt2(16字节) + iv(16字节) + 密文 + hmac(32字节)
     """
     if raw[:4] != b"ENC0":
-        raise ValueError("missing ENC0 magic header")
+        raise ValueError("缺少 ENC0 魔数头")
 
     salt1 = raw[4:20]
     salt2 = raw[20:36]
@@ -121,11 +116,11 @@ def decrypt_content(raw: bytes) -> str:
 
     computed_hmac = hmac.new(hmac_key, raw[:-32], hashlib.sha256).digest()
     if not hmac.compare_digest(computed_hmac, stored_hmac):
-        raise ValueError("HMAC mismatch (unexpected format/version)")
+        raise ValueError("HMAC 校验不匹配（格式/版本可能不符合预期）")
 
     cipher = AES.new(aes_key, AES.MODE_CBC, iv)
     plaintext = unpad_pkcs7(cipher.decrypt(ciphertext))
-    plaintext = plaintext[:-1]  # client appends one extra trailing byte after padding
+    plaintext = plaintext[:-1]  # 客户端在去除填充后还会多附加一个字节，需一并去掉
     return plaintext.decode("utf-8", errors="replace")
 
 
@@ -136,14 +131,14 @@ def sanitize_filename(name: str) -> str:
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Decrypt a Yinxiang Biji / Evernote .notes export (ENC0 format)."
+        description="解密印象笔记 / Evernote 的 .notes 导出文件（ENC0 格式）。"
     )
-    parser.add_argument("input", help="Path to the .notes (or .enex) export file")
+    parser.add_argument("input", help="待解密的 .notes（或 .enex）导出文件路径")
     parser.add_argument(
         "-o",
         "--output",
         default=None,
-        help="Output directory (default: 'decrypted_notes' next to the input file)",
+        help="输出目录（默认：在输入文件同目录下创建 'decrypted_notes' 文件夹）",
     )
     args = parser.parse_args()
 
@@ -156,8 +151,8 @@ def main():
     os.makedirs(out_dir, exist_ok=True)
 
     notes = NOTE_RE.findall(data)
-    print(f"Found {len(notes)} notes in {args.input}")
-    print(f"Writing decrypted notes to {out_dir}\n")
+    print(f"在 {args.input} 中找到 {len(notes)} 条笔记")
+    print(f"解密结果将写入 {out_dir}\n")
 
     ok = 0
     failed = []
@@ -169,7 +164,7 @@ def main():
         content_match = CONTENT_RE.search(note_block)
         if not content_match:
             skipped += 1
-            print(f"[{i}] '{title}': not encrypted (or no content), skipping")
+            print(f"[{i}] '{title}'：未加密（或无内容），已跳过")
             continue
 
         raw = base64.b64decode(content_match.group(1))
@@ -177,16 +172,16 @@ def main():
             plaintext = decrypt_content(raw)
         except Exception as e:
             failed.append((title, str(e)))
-            print(f"[{i}] '{title}': FAILED ({e})")
+            print(f"[{i}] '{title}'：解密失败（{e}）")
             continue
 
         fname = f"{i:03d}_{sanitize_filename(title)}.html"
         with open(os.path.join(out_dir, fname), "w", encoding="utf-8") as out:
             out.write(plaintext)
         ok += 1
-        print(f"[{i}] '{title}': OK -> {fname}")
+        print(f"[{i}] '{title}'：解密成功 -> {fname}")
 
-    print(f"\nDone. {ok} decrypted, {len(failed)} failed, {skipped} skipped (not encrypted).")
+    print(f"\n完成。成功 {ok} 条，失败 {len(failed)} 条，跳过 {skipped} 条（未加密）。")
     sys.exit(1 if failed and ok == 0 else 0)
 
 

@@ -1,124 +1,118 @@
 # YXBJ Notes Convertor
 
-Decrypt a Yinxiang Biji (印象笔记) / Evernote `.notes` export whose note
-content is encrypted (`encoding="base64:aes"`, the `ENC0` format), and dump
-each note's content out as a plain `.html` file you can open in any
-browser.
+解密印象笔记 / Evernote 导出的 `.notes` 文件——其中笔记内容被加密
+（`encoding="base64:aes"`，即 `ENC0` 格式）——并把每条笔记的内容导出为
+纯 `.html` 文件，用任意浏览器即可打开阅读。
 
-## Why this exists
+## 为什么会有这个工具
 
-Yinxiang Biji / Evernote's Mac client can produce a local `.notes`
-backup/export that looks like a normal `.enex` export, except every
-`<content>` element is encrypted. There is **no password prompt** when you
-create this export, and — importantly — there's no user password needed
-to decrypt it either: the app derives its keys from a constant that is
-hardcoded into the client binary itself, combined with a random salt
-stored in the file. Because that "secret" lives in the app, not in your
-head, any `.notes` file produced by this app can be decrypted without
-knowing any password.
+印象笔记 / Evernote 的 Mac 客户端可以生成一种本地 `.notes` 备份/导出
+文件，格式上看起来和普通的 `.enex` 导出文件类似，只是每个 `<content>`
+元素都被加密了。生成这种导出文件时**不会弹出任何密码输入框**——更重要
+的是，解密它也**不需要任何用户密码**：客户端是从一个硬编码在客户端
+二进制文件里的常量出发，结合文件中存储的随机盐值来推导密钥的。既然这个
+"秘密"是写在软件里的，而不是只有你自己知道的东西，那么任何由这个客户端
+生成的 `.notes` 文件，都可以在不知道任何密码的情况下被解密。
 
-This was cross-checked against the C# implementation in
-[HNIdesu/YinxiangbijiConverter](https://github.com/HNIdesu/YinxiangbijiConverter),
-which independently reverse-engineered the same constant and algorithm.
+该实现已与
+[HNIdesu/YinxiangbijiConverter](https://github.com/HNIdesu/YinxiangbijiConverter)
+中的 C# 实现相互印证——该项目独立逆向出了同一个常量和算法。
 
-## Requirements
+## 环境要求
 
 - Python 3.8+
 - [pycryptodome](https://pypi.org/project/pycryptodome/)
 
-## Install
+## 安装
 
-macOS ships a Homebrew-managed Python that blocks global `pip install`, so
-using a virtual environment is the simplest path on any platform:
+macOS 自带的 Homebrew Python 会阻止全局 `pip install`，所以不管在哪个
+平台，使用虚拟环境都是最简单的方式：
 
 ```bash
 git clone git@github.com:Blaxon/YXBJ_notes_convertor.git
 cd YXBJ_notes_convertor
 
 python3 -m venv venv
-source venv/bin/activate      # Windows: venv\Scripts\activate
+source venv/bin/activate      # Windows 下用: venv\Scripts\activate
 
 pip install -r requirements.txt
 ```
 
-## Usage
+## 使用方法
 
 ```bash
 python3 yxbj_decrypt.py "/path/to/My Notes.notes"
 ```
 
-This writes one `.html` file per note (named `NNN_<title>.html`) into a
-`decrypted_notes/` folder created next to your input file.
+这会在输入文件同目录下创建一个 `decrypted_notes/` 文件夹，并将每条笔记
+写成一个 `.html` 文件（命名格式为 `NNN_标题.html`）。
 
-Custom output location:
+自定义输出目录：
 
 ```bash
 python3 yxbj_decrypt.py "/path/to/My Notes.notes" -o /path/to/output_dir
 ```
 
-### Getting a `.notes` export
+### 如何获取 `.notes` 导出文件
 
-In the Evernote / Yinxiang Biji Mac app: select the notes or notebook you
-want, then **File → Export Notes...** and choose the `.notes` format.
+在 Evernote / 印象笔记 Mac 客户端中：选中要导出的笔记或笔记本，然后
+**文件 → 导出笔记...**，格式选择 `.notes`。
 
-### Example output
+### 输出示例
 
 ```
-Found 62 notes in /path/to/My Notes.notes
-Writing decrypted notes to /path/to/decrypted_notes
+在 /path/to/My Notes.notes 中找到 62 条笔记
+解密结果将写入 /path/to/decrypted_notes
 
-[1] 'My First Note': OK -> 001_My First Note.html
-[2] 'Shopping List': OK -> 002_Shopping List.html
+[1] '我的第一条笔记'：解密成功 -> 001_我的第一条笔记.html
+[2] '购物清单'：解密成功 -> 002_购物清单.html
 ...
-Done. 62 decrypted, 0 failed, 0 skipped (not encrypted).
+完成。成功 62 条，失败 0 条，跳过 0 条（未加密）。
 ```
 
-Each output file contains the note's raw ENML/HTML body (an `<en-note>`
-document) — open it directly in a browser to read it, or feed it into your
-own Markdown/text converter.
+每个输出文件都包含该笔记原始的 ENML/HTML 正文（一个 `<en-note>`
+文档）——可以直接用浏览器打开阅读，也可以自行转换成 Markdown 或纯文本。
 
-## Scope & limitations
+## 适用范围与限制
 
-- Only decrypts the note **content** (title text is already stored
-  unencrypted in the export). Embedded resources/attachments are untouched
-  because they aren't encrypted in this format to begin with.
-- Verified against Evernote Mac / Yinxiang Biji Mac client version 9.8.x.
-  If a future client version changes the embedded constant, every note
-  will fail with `HMAC mismatch` rather than silently producing garbage —
-  that's a safe failure mode, not data corruption.
-- This tool only reads your own local export file. It does not connect to
-  any Evernote/Yinxiang service or account.
+- 只解密笔记的**正文内容**（标题在导出文件中本来就是明文）。内嵌的资源
+  文件/附件不会被处理，因为这种格式本身就没有对它们加密。
+- 目前只在 Evernote Mac / 印象笔记 Mac 客户端 9.8.x 版本上验证通过。如果
+  未来的客户端版本更换了内置常量，每条笔记都会直接报 `HMAC mismatch`
+  错误，而不会静默产出乱码内容——这是一种安全的失败方式，不会造成数据
+  损坏或误判。
+- 本工具只读取你本地的导出文件，不会连接任何 Evernote / 印象笔记的
+  服务器或账号。
 
-## How it works (technical)
+## 原理说明（技术细节）
 
-Each encrypted `<content>` block, once base64-decoded, has this layout:
+每个加密的 `<content>` 内容块，base64 解码后的数据结构如下：
 
 ```
-"ENC0" (4 bytes magic)
-salt1  (16 bytes) -- for the AES key
-salt2  (16 bytes) -- for the HMAC verification key
-iv     (16 bytes)
-ciphertext (variable length, AES-128-CBC, PKCS7-padded + 1 extra byte)
-hmac   (32 bytes, HMAC-SHA256 over everything before it)
+"ENC0" (4 字节魔数)
+salt1  (16 字节) —— 用于派生 AES 密钥
+salt2  (16 字节) —— 用于派生 HMAC 校验密钥
+iv     (16 字节)
+密文    (长度不定，AES-128-CBC，PKCS7 填充 + 额外 1 字节)
+hmac   (32 字节，对前面所有内容做 HMAC-SHA256)
 ```
 
-Both `salt1` and `salt2` are run through the same key-derivation routine:
-a fixed 40-byte constant (`{22C58AC3-F1C7-4D96-8B88-5E4BBF505817}`) is used
-as an HMAC-SHA256 key across 50,000 rounds, repeatedly hashing a running
-nonce (seeded from the salt) and XOR-accumulating the first 16 bytes of
-each round's digest into the output key. This is a bespoke construction,
-not standard PBKDF2, but is deterministic and requires no secret input
-beyond the salts already present in the file.
+`salt1` 和 `salt2` 都会经过同一套密钥派生流程：以一个固定的 40 字节
+常量（`{22C58AC3-F1C7-4D96-8B88-5E4BBF505817}`）作为 HMAC-SHA256 的密钥，
+迭代 5 万轮——每一轮都对当前的 nonce（由盐值播种）重新做一次哈希，并把
+这一轮摘要的前 16 字节异或累加进输出密钥。这是一套非标准的自定义构造，
+不是常见的 PBKDF2，但它是确定性的，除了文件中本就存在的盐值外，不需要
+任何额外的秘密输入。
 
-The resulting `salt1`-derived key decrypts the ciphertext (AES-128-CBC);
-the `salt2`-derived key verifies the trailing HMAC before any decryption
-is trusted.
+由 `salt1` 派生出的密钥用于解密密文（AES-128-CBC）；由 `salt2` 派生出
+的密钥则用于在解密之前先校验末尾的 HMAC，确保数据完整可信。
 
-## License
+## 许可证
 
-MIT — see [LICENSE](LICENSE).
+MIT — 详见 [LICENSE](LICENSE)。
 
-## Credits
+## 致谢
 
-Algorithm cross-referenced against
-[HNIdesu/YinxiangbijiConverter](https://github.com/HNIdesu/YinxiangbijiConverter).
+算法已与
+[HNIdesu/YinxiangbijiConverter](https://github.com/HNIdesu/YinxiangbijiConverter)
+相互印证。
